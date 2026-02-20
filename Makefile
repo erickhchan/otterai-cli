@@ -1,11 +1,14 @@
-.PHONY: init-dev format test
+.PHONY: init-dev format lint test
 
 init-dev:
 	uv venv || true
 	uv pip install .[dev]
 
 format:
-	uv run black .
+	uv run ruff format .
+
+lint:
+	uv run ruff check .
 
 test:
 	rm -f cov.xml ||:

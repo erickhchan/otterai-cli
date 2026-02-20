@@ -39,7 +39,18 @@ Issues = "https://github.com/ericchan-su/otterai-cli/issues"
 otter = "otterai.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "black"]
+dev = ["pytest", "pytest-cov", "responses", "ruff"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/otterai"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+strict_markers = true
+
+[tool.coverage.run]
+source = ["src/otterai"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
