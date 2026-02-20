@@ -1,70 +1,67 @@
-# otterai-api
+# otterai-cli
 
-Unofficial Python API for [otter.ai](http://otter.ai)
+An unofficial command-line interface for [Otter.ai](https://otter.ai).
 
-## Contents
-
--   [Installation](#installation)
--   [Setup](#setup)
--   [CLI](#cli)
--   [APIs](#apis)
-    -   [User](#user)
-    -   [Speeches](#speeches)
-    -   [Speakers](#speakers)
-    -   [Folders](#folders)
-    -   [Groups](#groups)
-    -   [Notifications](#notifications)
--   [Exceptions](#exceptions)
+> **Note:** This project is not affiliated with or endorsed by Otter.ai / Aisense Inc.
 
 ## Installation
 
-`pip install .`
+```bash
+uv tool install otterai-cli
+```
 
-or in a virtual environment
+This makes the `otter` command available globally.
+
+Or run directly without installing:
 
 ```bash
-python3 -m venv env
-source env/bin/activate
-pip install .
+uvx --from otterai-cli otter --help
 ```
 
 ## Setup
 
-```python
-from otterai import OtterAI
-otter = OtterAI()
-otter.login('USERNAME', 'PASSWORD')
-```
-
-## CLI
-
-A command-line interface is also available for interacting with Otter.ai.
-
-### Authentication
-
 ```bash
-# Login (saves credentials to ~/.otterai/config.json)
 otter login
-
-# Logout (clears saved credentials)
-otter logout
-
-# View current user
-otter user
 ```
 
-You can also set credentials via environment variables (these take precedence over the config file):
+This prompts for your Otter.ai email and password. Credentials are saved to `~/.otterai/config.json`.
+
+### Alternative methods
+
+**Environment variables** (take precedence over config file):
 
 ```bash
 export OTTERAI_USERNAME="your-email@example.com"
 export OTTERAI_PASSWORD="your-password"
 ```
 
+### Auth commands
+
+```bash
+otter user      # check current user
+otter logout    # remove saved credentials
+```
+
+## Usage
+
+```bash
+otter speeches list                          # list all speeches
+otter speeches list --days 7                 # last 7 days
+otter speeches list --folder "Work"          # by folder name
+otter speeches get SPEECH_ID                 # get speech details + transcript
+otter speeches download SPEECH_ID -f txt     # download as txt, pdf, mp3, docx, or srt
+otter speeches search "keyword" SPEECH_ID    # search within a speech
+otter speakers list                          # list all speakers
+otter folders list                           # list all folders
+```
+
+Run `otter --help` or `otter <command> --help` for more options.
+
 ### Important: Speech IDs (otid vs speech_id)
 
 Otter.ai speeches have two identifiers:
-- **`speech_id`** (e.g. `22WB27HAEBEJYFCA`) — internal ID, does **NOT** work with API endpoints
-- **`otid`** (e.g. `jqb7OHo6mrHtCuMkyLN0nUS8mxY`) — the ID used in all API calls
+- **`speech_id`** (e.g. `22WB27HAEBEJYFCA`) -- internal ID, does **NOT** work with API endpoints
+- **`otid`** (e.g. `jqb7OHo6mrHtCuMkyLN0nUS8mxY`) -- the ID used in all API calls
 
 All CLI commands that accept a `SPEECH_ID` argument expect the **otid** value. Use `otter speeches list` to find otids, or `otter speeches list --json | jq '.speeches[].otid'` for just the IDs.
 
@@ -117,6 +114,10 @@ otter speakers list
 
 # Create a new speaker
 otter speakers create "Speaker Name"
+
+# Tag a speaker on transcript segments
+otter speakers tag SPEECH_ID SPEAKER_ID
+otter speakers tag SPEECH_ID SPEAKER_ID --all
 ```
 
 ### Folders and Groups
@@ -154,113 +155,26 @@ otter speeches list --json
 otter speakers list --json
 ```
 
-## APIs
+## Python API
 
-### User
-
-Get user specific data
+You can also use the library directly:
 
 ```python
-otter.get_user()
+from otterai import OtterAI
+
+client = OtterAI()
+client.login("USERNAME", "PASSWORD")
+client.get_speeches()
+client.get_speech(SPEECH_ID)
 ```
 
-### Speeches
+## Development
 
-Get all speeches
-
-**optional parameters**: folder, page_size, source
-
-```python
-otter.get_speeches()
+```bash
+uv sync --dev        # install dependencies
+uv run pytest        # run tests
 ```
 
-Get speech by id
+## Acknowledgements
 
-```python
-otter.get_speech(SPEECH_ID)
-```
-
-Query a speech
-
-```python
-otter.query_speech(QUERY, SPEECH_ID)
-```
-
-Upload a speech
-
-**optional parameters**: content_type (default audio/mp4)
-
-```python
-otter.upload_speech(FILE_NAME)
-```
-
-Download a speech
-
-**optional parameters**: filename (defualt id), format (default: all available (txt,pdf,mp3,docx,srt) as zip file)
-
-```python
-otter.download_speech(SPEECH_ID, FILE_NAME)
-```
-
-Move a speech to trash
-
-```python
-otter.move_to_trash_bin(SPEECH_ID)
-```
-
-#### TODO
-
-Start a live speech
-
-### Speakers
-
-Get all speakers
-
-```python
-otter.get_speakers()
-```
-
-Create a speaker
-
-```python
-otter.create_speaker(SPEAKER_NAME)
-```
-
-#### TODO
-
-Assign a speaker to speech transcript
-
-### Folders
-
-Get all folders
-
-```python
-otter.get_folders()
-```
-
-### Groups
-
-Get all groups
-
-```python
-otter.list_groups()
-```
-
-### Notifications
-
-Get notification settings
-
-```python
-otter.get_notification_settings()
-```
-
-## Exceptions
-
-```python
-from otterai import OtterAIException
-
-try:
- ...
-except OtterAIException as e:
- ...
-```
+Based on [gmchad/otterai-api](https://github.com/gmchad/otterai-api) by Chad Lohrli, with CLI functionality from [PR #9](https://github.com/gmchad/otterai-api/pull/9) by [@andrewfurman](https://github.com/andrewfurman).
