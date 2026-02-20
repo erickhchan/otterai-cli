@@ -155,19 +155,6 @@ otter speeches list --json
 otter speakers list --json
 ```
 
-## Python API
-
-You can also use the library directly:
-
-```python
-from otterai import OtterAI
-
-client = OtterAI()
-client.login("USERNAME", "PASSWORD")
-client.get_speeches()
-client.get_speech(SPEECH_ID)
-```
-
 ## Development
 
 ```bash

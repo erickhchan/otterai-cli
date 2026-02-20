@@ -9,7 +9,7 @@ format:
 
 test:
 	rm -f cov.xml ||:
-	uv run pytest -s --cov=otterai \
+	uv run pytest -s --cov=src/otterai \
 		--cov-report=lcov:lcov.info \
 		--cov-report=xml:cov.xml \
 		tests/

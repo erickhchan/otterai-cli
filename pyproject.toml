@@ -24,21 +24,22 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Utilities",
 ]
+dependencies = [
+    "click>=8.0",
+    "requests",
+    "requests_toolbelt",
+]
 
 [project.urls]
 Homepage = "https://github.com/ericchan-su/otterai-cli"
 Repository = "https://github.com/ericchan-su/otterai-cli"
 Issues = "https://github.com/ericchan-su/otterai-cli/issues"
 
-dependencies = [
-    "click>=8.0",
-    "python-dotenv>=1.2.1",
-    "requests",
-    "requests_toolbelt",
-]
-
 [project.scripts]
 otter = "otterai.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov", "black"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/otterai"]
