@@ -1,0 +1,6 @@
+__pycache__/
+*.egg-info/*
+build/
+cov.xml
+.env
+tests/output/

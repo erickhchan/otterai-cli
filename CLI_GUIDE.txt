@@ -1,0 +1,62 @@
+
+OTTER.AI CLI GUIDE
+==================
+
+INSTALLATION (from PR branch)
+-----------------------------
+pip install git+https://github.com/andrewfurman/otterai-api.git@feature/cli
+
+
+SETUP
+-----
+otter login
+  - Enter your otter.ai email and password when prompted
+  - Credentials saved to ~/.otterai/config.json
+
+
+SPEECHES (TRANSCRIPTS)
+----------------------
+otter speeches list                         List all transcripts
+otter speeches list --page-size 10          Limit results
+otter speeches list --source shared         Filter: owned, shared, all
+otter speeches get <id>                     Get transcript details
+otter speeches download <id>                Download as txt
+otter speeches download <id> --format pdf   Download as pdf, docx, srt, mp3
+otter speeches download <id> --format txt,pdf   Multiple formats (zip)
+otter speeches search "keyword" <id>        Search within transcript
+otter speeches upload recording.mp4         Upload audio for transcription
+otter speeches trash <id>                   Move to trash
+otter speeches rename <id> "New Title"      Rename a speech
+otter speeches move <id> --folder <folder_id>      Move to folder
+otter speeches move <id1> <id2> --folder <folder_id>   Move multiple
+
+
+SPEAKERS
+--------
+otter speakers list                         List all speakers
+otter speakers create "Name"                Create new speaker
+otter speakers tag <speech_id> <speaker_id>                 List transcript segments
+otter speakers tag <speech_id> <speaker_id> -t <uuid>       Tag specific segment
+otter speakers tag <speech_id> <speaker_id> --all           Tag all segments
+
+
+ORGANIZATION
+------------
+otter folders list                          List folders
+otter folders create "Folder Name"          Create new folder
+otter folders rename <folder_id> "New Name" Rename folder
+otter groups list                           List groups
+
+
+ACCOUNT
+-------
+otter user                                  Show account info
+otter logout                                Clear saved credentials
+otter config show                           Show config status
+
+
+TIPS
+----
+- Add --json to most commands for machine-readable output
+- Pipe to jq for parsing: otter speeches list --json | jq '.speeches[].title'
+- Speech IDs look like: sBx0r9biXEUq3Lijmj6CLNJIbN8
