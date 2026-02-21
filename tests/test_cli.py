@@ -361,13 +361,42 @@ def test_speeches_list_json(runner, saved_credentials, mock_login):
     assert data["speeches"][0]["otid"] == "abc123"
 
 
-def test_speeches_list_with_folder_name_rejected(runner, saved_credentials):
-    """Test speeches list with --folder name is rejected (option type is INT)."""
-    # The --folder option has default=0 (int), so click auto-detects type as INT
-    # and rejects non-numeric values before the command function runs.
+def test_speeches_list_with_folder_name(runner, saved_credentials, mock_login):
+    """Test speeches list with --folder name resolves to folder ID."""
+    mock_login.get(
+        API_BASE + "folders",
+        json={"folders": [{"id": 42, "folder_name": "Work"}]},
+        status=200,
+    )
+    mock_login.get(
+        API_BASE + "speeches",
+        json={
+            "speeches": [
+                {
+                    "otid": "s1",
+                    "title": "In Work Folder",
+                    "folder": {"id": 42, "folder_name": "Work"},
+                },
+                {
+                    "otid": "s2",
+                    "title": "In Personal Folder",
+                    "folder": {"id": 99, "folder_name": "Personal"},
+                },
+            ]
+        },
+        status=200,
+    )
+
     result = runner.invoke(main, ["speeches", "list", "--folder", "Work"])
-    assert result.exit_code == 2
-    assert "Invalid value" in result.output
+    assert result.exit_code == 0
+    assert "In Work Folder" in result.output
+    assert "In Personal Folder" not in result.output
+
+    speech_calls = [
+        c for c in mock_login.calls if c.request.url.startswith(API_BASE + "speeches")
+    ]
+    assert speech_calls
+    assert "folder=42" in speech_calls[0].request.url
 
 
 def test_speeches_list_with_folder_id(runner, saved_credentials, mock_login):
@@ -380,6 +409,62 @@ def test_speeches_list_with_folder_id(runner, saved_credentials, mock_login):
     result = runner.invoke(main, ["speeches", "list", "--folder", "42"])
     assert result.exit_code == 0
     assert "In Folder 42" in result.output
+
+
+def test_speeches_list_with_folder_id_filters_mixed_results(
+    runner, saved_credentials, mock_login
+):
+    """Test speeches list filters mixed-folder API results client-side."""
+    mock_login.get(
+        API_BASE + "speeches",
+        json={
+            "speeches": [
+                {
+                    "otid": "s1",
+                    "title": "In Folder 42",
+                    "folder": {"id": 42, "folder_name": "Work"},
+                },
+                {
+                    "otid": "s2",
+                    "title": "In Folder 99",
+                    "folder": {"id": 99, "folder_name": "Other"},
+                },
+            ]
+        },
+        status=200,
+    )
+
+    result = runner.invoke(main, ["speeches", "list", "--folder", "42"])
+    assert result.exit_code == 0
+    assert "In Folder 42" in result.output
+    assert "In Folder 99" not in result.output
+
+
+def test_speeches_list_with_zero_padded_all_folder(runner, saved_credentials, mock_login):
+    """Test --folder 000 behaves like folder 0 (all speeches)."""
+    mock_login.get(
+        API_BASE + "speeches",
+        json={
+            "speeches": [
+                {
+                    "otid": "s1",
+                    "title": "Work Speech",
+                    "folder": {"id": 42, "folder_name": "Work"},
+                },
+                {
+                    "otid": "s2",
+                    "title": "Other Speech",
+                    "folder": {"id": 99, "folder_name": "Other"},
+                },
+            ]
+        },
+        status=200,
+    )
+
+    result = runner.invoke(main, ["speeches", "list", "--folder", "000"])
+    assert result.exit_code == 0
+    assert "Work Speech" in result.output
+    assert "Other Speech" in result.output
 
 
 def test_speeches_list_with_days_filter(runner, saved_credentials, mock_login):

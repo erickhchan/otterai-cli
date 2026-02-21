@@ -24,7 +24,11 @@ def speeches():
 
 @speeches.command("list")
 @click.option(
-    "--folder", "-f", default=0, help="Folder ID or name (default: 0 = all)"
+    "--folder",
+    "-f",
+    default="0",
+    type=str,
+    help="Folder ID or name (default: 0 = all)",
 )
 @click.option("--page-size", "-n", default=45, help="Number of results (default: 45)")
 @click.option(
@@ -42,16 +46,16 @@ def speeches():
     help="Only show speeches from the last N days",
 )
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def speeches_list(folder, page_size: int, source: str, days: int, as_json: bool):
+def speeches_list(folder: str, page_size: int, source: str, days: int, as_json: bool):
     """List all speeches."""
     client = get_authenticated_client()
 
     # Resolve folder name to ID if needed
-    folder_id = folder
-    if isinstance(folder, str) and not str(folder).isdigit():
-        folder_id = _resolve_folder_id(client, str(folder))
+    folder_ref = str(folder).strip()
+    if folder_ref and not folder_ref.isdigit():
+        folder_id = _resolve_folder_id(client, folder_ref)
     else:
-        folder_id = int(folder) if folder else 0
+        folder_id = int(folder_ref) if folder_ref else 0
 
     try:
         result = client.get_speeches(
@@ -67,6 +71,28 @@ def speeches_list(folder, page_size: int, source: str, days: int, as_json: bool)
 
     data = result["data"]
     speeches_data = data.get("speeches", [])
+
+    # Otter's API can return cross-folder items even when folder is specified.
+    # Apply client-side filtering when folder metadata is present.
+    if folder_id != 0 and speeches_data:
+        target_folder_id = str(folder_id)
+        target_folder_name = folder_ref.lower() if not folder_ref.isdigit() else None
+
+        def _matches_requested_folder(speech: dict) -> bool:
+            folder_info = speech.get("folder")
+            if not isinstance(folder_info, dict):
+                return False
+            if str(folder_info.get("id", "")) == target_folder_id:
+                return True
+            if target_folder_name and folder_info.get(
+                "folder_name", ""
+            ).lower() == target_folder_name:
+                return True
+            return False
+
+        if any(isinstance(s.get("folder"), dict) for s in speeches_data):
+            speeches_data = [s for s in speeches_data if _matches_requested_folder(s)]
+            data["speeches"] = speeches_data
 
     # Filter by days if specified
     if days is not None and speeches_data:
