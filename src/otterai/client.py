@@ -369,14 +369,18 @@ class OtterAIClient:
             speech_ids = [speech_ids]
 
         payload = {"userid": self._userid, "folder_id": folder_id}
-        data = {"speech_otid_list": speech_ids}
         headers = self._authed_headers()
-        response = self._session.post(
-            add_folder_speeches_url,
-            params=payload,
-            headers=headers,
-            data=data,
-            timeout=self.DEFAULT_TIMEOUT,
-        )
 
-        return self._handle_response(response)
+        results = []
+        for speech_id in speech_ids:
+            data = {"speech_otid_list": speech_id}
+            response = self._session.post(
+                add_folder_speeches_url,
+                params=payload,
+                headers=headers,
+                data=data,
+                timeout=self.DEFAULT_TIMEOUT,
+            )
+            results.append(self._handle_response(response))
+
+        return results[-1] if results else {"status": 200}
