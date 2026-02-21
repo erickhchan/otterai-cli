@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from otterai import config
 
 
@@ -31,24 +29,32 @@ class TestGetConfigPath:
 class TestSaveCredentials:
     """Tests for save_credentials."""
 
-    def test_creates_config_file(self, temp_config_dir):
+    def test_saves_to_keyring_when_available(self, temp_config_dir, fake_keyring):
+        backend = config.save_credentials("alice", "s3cret")
+        assert backend == "keyring"
+        assert fake_keyring[("otterai-cli", "username")] == "alice"
+        assert fake_keyring[("otterai-cli", "password")] == "s3cret"
+
+    def test_does_not_write_file_when_keyring_succeeds(self, temp_config_dir, fake_keyring):
         config.save_credentials("alice", "s3cret")
+        config_file = temp_config_dir / "config.json"
+        assert not config_file.exists()
+
+    def test_falls_back_to_file_when_keyring_broken(self, temp_config_dir, broken_keyring):
+        backend = config.save_credentials("alice", "s3cret")
+        assert backend == "file"
         config_file = temp_config_dir / "config.json"
         assert config_file.exists()
-
-    def test_writes_valid_json(self, temp_config_dir):
-        config.save_credentials("alice", "s3cret")
-        config_file = temp_config_dir / "config.json"
         data = json.loads(config_file.read_text())
         assert data == {"username": "alice", "password": "s3cret"}
 
-    def test_sets_restrictive_file_permissions(self, temp_config_dir):
+    def test_file_fallback_sets_restrictive_permissions(self, temp_config_dir, broken_keyring):
         config.save_credentials("alice", "s3cret")
         config_file = temp_config_dir / "config.json"
         file_mode = config_file.stat().st_mode & 0o777
         assert file_mode == 0o600
 
-    def test_creates_config_dir_if_missing(self, tmp_path, monkeypatch):
+    def test_creates_config_dir_if_missing(self, tmp_path, monkeypatch, broken_keyring):
         nested = tmp_path / "nonexistent"
         monkeypatch.setenv("OTTERAI_CONFIG_DIR", str(nested))
         monkeypatch.delenv("OTTERAI_USERNAME", raising=False)
@@ -58,55 +64,118 @@ class TestSaveCredentials:
         assert nested.is_dir()
         assert (nested / "config.json").exists()
 
-    def test_config_dir_has_700_permissions(self, tmp_path, monkeypatch):
+    def test_config_dir_has_700_permissions(self, tmp_path, monkeypatch, broken_keyring):
         nested = tmp_path / "new-dir"
         monkeypatch.setenv("OTTERAI_CONFIG_DIR", str(nested))
         config.save_credentials("alice", "s3cret")
         dir_mode = nested.stat().st_mode & 0o777
         assert dir_mode == 0o700
 
-    def test_overwrites_existing_credentials(self, temp_config_dir):
+    def test_overwrites_existing_credentials(self, temp_config_dir, fake_keyring):
         config.save_credentials("alice", "old-pass")
         config.save_credentials("bob", "new-pass")
-        config_file = temp_config_dir / "config.json"
-        data = json.loads(config_file.read_text())
-        assert data == {"username": "bob", "password": "new-pass"}
+        assert fake_keyring[("otterai-cli", "username")] == "bob"
+        assert fake_keyring[("otterai-cli", "password")] == "new-pass"
 
-    def test_handles_special_characters(self, temp_config_dir):
+    def test_handles_special_characters(self, temp_config_dir, fake_keyring):
         username = "user@example.com"
         password = 'p@ss"w0rd!$#&\n\t'
         config.save_credentials(username, password)
-        data = json.loads((temp_config_dir / "config.json").read_text())
-        assert data["username"] == username
-        assert data["password"] == password
+        assert fake_keyring[("otterai-cli", "username")] == username
+        assert fake_keyring[("otterai-cli", "password")] == password
 
-    def test_json_is_pretty_printed(self, temp_config_dir):
+    def test_file_fallback_json_is_pretty_printed(self, temp_config_dir, broken_keyring):
         config.save_credentials("alice", "pass")
         raw = (temp_config_dir / "config.json").read_text()
-        # indent=2 produces multiple lines
         assert "\n" in raw
         assert "  " in raw
+
+    def test_partial_keyring_failure_rolls_back_and_falls_back(
+        self, temp_config_dir, partial_keyring_write
+    ):
+        """If password write fails after username write, username is cleaned up."""
+        backend = config.save_credentials("alice", "s3cret")
+        assert backend == "file"
+        # Orphaned username should have been rolled back
+        assert ("otterai-cli", "username") not in partial_keyring_write
+        # Credentials should be in file
+        config_file = temp_config_dir / "config.json"
+        data = json.loads(config_file.read_text())
+        assert data == {"username": "alice", "password": "s3cret"}
 
 
 class TestLoadCredentials:
     """Tests for load_credentials."""
 
-    def test_loads_from_config_file(self, saved_credentials):
+    def test_loads_from_keyring(self, temp_config_dir, fake_keyring):
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
         username, password = config.load_credentials()
-        assert username == "testuser"
-        assert password == "testpass"
+        assert username == "kr-user"
+        assert password == "kr-pass"
 
     def test_returns_none_tuple_when_no_config(self, temp_config_dir):
         username, password = config.load_credentials()
         assert username is None
         assert password is None
 
-    def test_env_vars_take_precedence_over_file(self, saved_credentials, monkeypatch):
+    def test_env_vars_take_precedence_over_keyring(self, temp_config_dir, fake_keyring, monkeypatch):
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
         monkeypatch.setenv("OTTERAI_USERNAME", "env-user")
         monkeypatch.setenv("OTTERAI_PASSWORD", "env-pass")
         username, password = config.load_credentials()
         assert username == "env-user"
         assert password == "env-pass"
+
+    def test_keyring_takes_precedence_over_file(self, temp_config_dir, fake_keyring):
+        # Write to config file directly (legacy)
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "file-user", "password": "file-pass"}))
+        # Also put in keyring
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
+        username, password = config.load_credentials()
+        assert username == "kr-user"
+        assert password == "kr-pass"
+
+    def test_falls_back_to_file_when_keyring_empty(self, temp_config_dir):
+        """Credentials in file are loaded when keyring is available but empty."""
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "file-user", "password": "file-pass"}))
+        username, password = config.load_credentials()
+        assert username == "file-user"
+        assert password == "file-pass"
+
+    def test_falls_back_to_file_when_keyring_broken(self, temp_config_dir, broken_keyring):
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "file-user", "password": "file-pass"}))
+        username, password = config.load_credentials()
+        assert username == "file-user"
+        assert password == "file-pass"
+
+    def test_partial_keyring_falls_back_to_file(self, temp_config_dir, fake_keyring):
+        """Only username in keyring (no password) should fall through to file."""
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        # No password in keyring
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"username": "file-user", "password": "file-pass"})
+        )
+        username, password = config.load_credentials()
+        assert username == "file-user"
+        assert password == "file-pass"
+
+    def test_unreadable_config_file_returns_none_tuple(self, temp_config_dir):
+        """OSError from read_text() is handled gracefully."""
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text('{"username": "u", "password": "p"}')
+        config_file.chmod(0o000)
+        username, password = config.load_credentials()
+        assert username is None
+        assert password is None
+        # Restore permissions for cleanup
+        config_file.chmod(0o600)
 
     def test_falls_back_to_file_when_only_username_env_set(
         self, saved_credentials, monkeypatch
@@ -114,7 +183,7 @@ class TestLoadCredentials:
         """When only one env var is set, both must be present to use env vars."""
         monkeypatch.setenv("OTTERAI_USERNAME", "env-user")
         username, password = config.load_credentials()
-        # Falls back to file because both env vars are required
+        # Falls back to keyring because both env vars are required
         assert username == "testuser"
         assert password == "testpass"
 
@@ -168,10 +237,10 @@ class TestLoadCredentials:
         assert username is None
         assert password is None
 
-    def test_env_vars_with_empty_strings_fall_back_to_file(
+    def test_env_vars_with_empty_strings_fall_back(
         self, saved_credentials, monkeypatch
     ):
-        """Empty env var strings are falsy, so should fall back to file."""
+        """Empty env var strings are falsy, so should fall back."""
         monkeypatch.setenv("OTTERAI_USERNAME", "")
         monkeypatch.setenv("OTTERAI_PASSWORD", "")
         username, password = config.load_credentials()
@@ -182,18 +251,44 @@ class TestLoadCredentials:
 class TestClearCredentials:
     """Tests for clear_credentials."""
 
-    def test_removes_existing_config_file(self, saved_credentials, temp_config_dir):
+    def test_removes_from_keyring(self, saved_credentials, fake_keyring):
+        assert ("otterai-cli", "username") in fake_keyring
+        result = config.clear_credentials()
+        assert result is True
+        assert ("otterai-cli", "username") not in fake_keyring
+        assert ("otterai-cli", "password") not in fake_keyring
+
+    def test_removes_config_file_too(self, temp_config_dir, fake_keyring):
+        """Clear removes legacy config file even if keyring is empty."""
         config_file = temp_config_dir / "config.json"
-        assert config_file.exists()
+        config_file.write_text('{"username": "u", "password": "p"}')
         result = config.clear_credentials()
         assert result is True
         assert not config_file.exists()
 
-    def test_returns_false_when_no_config_exists(self, temp_config_dir):
+    def test_clears_both_keyring_and_file(self, temp_config_dir, fake_keyring):
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text('{"username": "u", "password": "p"}')
+
+        result = config.clear_credentials()
+        assert result is True
+        assert ("otterai-cli", "username") not in fake_keyring
+        assert not config_file.exists()
+
+    def test_returns_false_when_nothing_exists(self, temp_config_dir):
         result = config.clear_credentials()
         assert result is False
 
-    def test_can_save_after_clear(self, saved_credentials, temp_config_dir):
+    def test_clears_file_when_keyring_broken(self, temp_config_dir, broken_keyring):
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text('{"username": "u", "password": "p"}')
+        result = config.clear_credentials()
+        assert result is True
+        assert not config_file.exists()
+
+    def test_can_save_after_clear(self, saved_credentials, fake_keyring):
         config.clear_credentials()
         config.save_credentials("new-user", "new-pass")
         username, password = config.load_credentials()
@@ -209,6 +304,59 @@ class TestClearCredentials:
         username, password = config.load_credentials()
         assert username is None
         assert password is None
+
+
+class TestGetCredentialBackend:
+    """Tests for get_credential_backend."""
+
+    def test_returns_environment_when_env_vars_set(self, temp_config_dir, monkeypatch):
+        monkeypatch.setenv("OTTERAI_USERNAME", "env-user")
+        monkeypatch.setenv("OTTERAI_PASSWORD", "env-pass")
+        assert config.get_credential_backend() == "environment"
+
+    def test_returns_keyring_when_in_keyring(self, temp_config_dir, fake_keyring):
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
+        assert config.get_credential_backend() == "keyring"
+
+    def test_returns_file_when_in_config_file(self, temp_config_dir):
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "u", "password": "p"}))
+        assert config.get_credential_backend() == "file"
+
+    def test_returns_none_when_no_credentials(self, temp_config_dir):
+        assert config.get_credential_backend() is None
+
+    def test_environment_takes_precedence(self, temp_config_dir, fake_keyring, monkeypatch):
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
+        monkeypatch.setenv("OTTERAI_USERNAME", "env-user")
+        monkeypatch.setenv("OTTERAI_PASSWORD", "env-pass")
+        assert config.get_credential_backend() == "environment"
+
+    def test_keyring_takes_precedence_over_file(self, temp_config_dir, fake_keyring):
+        fake_keyring[("otterai-cli", "username")] = "kr-user"
+        fake_keyring[("otterai-cli", "password")] = "kr-pass"
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "u", "password": "p"}))
+        assert config.get_credential_backend() == "keyring"
+
+    def test_returns_file_when_keyring_broken(self, temp_config_dir, broken_keyring):
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "u", "password": "p"}))
+        assert config.get_credential_backend() == "file"
+
+    def test_returns_none_when_file_has_empty_strings(self, temp_config_dir):
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "", "password": ""}))
+        assert config.get_credential_backend() is None
+
+    def test_returns_none_when_file_unreadable(self, temp_config_dir):
+        config_file = temp_config_dir / "config.json"
+        config_file.write_text(json.dumps({"username": "u", "password": "p"}))
+        config_file.chmod(0o000)
+        assert config.get_credential_backend() is None
+        config_file.chmod(0o600)
 
 
 class TestRoundTrip:
@@ -234,7 +382,8 @@ class TestRoundTrip:
         assert username == "user4"
         assert password == "pass4"
 
-    def test_config_path_matches_actual_file(self, temp_config_dir):
+    def test_config_path_matches_actual_file(self, temp_config_dir, broken_keyring):
+        """When keyring is broken, credentials go to file which should match config_path."""
         config.save_credentials("alice", "pass")
         path = config.get_config_path()
         assert path.exists()

@@ -124,10 +124,28 @@ def test_config_show_logged_in(runner, temp_config_dir):
     assert result.exit_code == 0
     assert "testuser@example.com" in result.output
     assert "Config file:" in result.output
-    assert "Config exists: True" in result.output
+    assert "Backend: keyring" in result.output
     # Password should be masked
     assert "testpass" not in result.output
     assert "****" in result.output
+
+
+def test_config_show_file_backend(runner, temp_config_dir, broken_keyring):
+    """Test config show when credentials are in file (keyring unavailable)."""
+    config.save_credentials("testuser@example.com", "testpass")
+    result = runner.invoke(main, ["config", "show"])
+    assert result.exit_code == 0
+    assert "Backend: file" in result.output
+
+
+def test_config_show_env_backend(runner, temp_config_dir, monkeypatch):
+    """Test config show when credentials come from environment variables."""
+    monkeypatch.setenv("OTTERAI_USERNAME", "env-user")
+    monkeypatch.setenv("OTTERAI_PASSWORD", "env-pass")
+    result = runner.invoke(main, ["config", "show"])
+    assert result.exit_code == 0
+    assert "Backend: environment" in result.output
+    assert "env-user" in result.output
 
 
 def test_config_show_config_path(runner, temp_config_dir):
@@ -165,11 +183,22 @@ def test_login_success(runner, temp_config_dir, mock_api):
     )
     assert result.exit_code == 0
     assert "Logged in as testuser@example.com" in result.output
-    assert "Credentials saved" in result.output
+    assert "Credentials saved to system keyring" in result.output
     # Verify credentials were actually saved
     username, password = config.load_credentials()
     assert username == "testuser@example.com"
     assert password == "testpass"
+
+
+def test_login_success_file_fallback(runner, temp_config_dir, mock_api, broken_keyring):
+    """Test successful login falls back to file when keyring unavailable."""
+    _register_login(mock_api)
+    result = runner.invoke(
+        main, ["login"], input="testuser@example.com\ntestpass\n"
+    )
+    assert result.exit_code == 0
+    assert "Credentials saved to" in result.output
+    assert "system keyring" not in result.output
 
 
 def test_login_with_options(runner, temp_config_dir, mock_api):

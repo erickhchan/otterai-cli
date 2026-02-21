@@ -28,10 +28,13 @@ def login(username: str, password: str):
         click.echo(f"Login failed: {result.get('data', {})}", err=True)
         sys.exit(1)
 
-    save_credentials(username, password)
+    backend = save_credentials(username, password)
     user_data = result.get("data", {})
     click.echo(f"Logged in as {user_data.get('email', username)}")
-    click.echo(f"Credentials saved to {get_config_path()}")
+    if backend == "keyring":
+        click.echo("Credentials saved to system keyring")
+    else:
+        click.echo(f"Credentials saved to {get_config_path()}")
 
 
 @click.command()

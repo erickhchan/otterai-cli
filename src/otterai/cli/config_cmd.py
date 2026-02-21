@@ -1,6 +1,6 @@
 import click
 
-from ..config import clear_credentials, get_config_path, load_credentials
+from ..config import clear_credentials, get_config_path, get_credential_backend, load_credentials
 
 
 @click.group("config")
@@ -14,11 +14,13 @@ def config_show():
     """Show current configuration."""
     username, password = load_credentials()
     config_path = get_config_path()
+    backend = get_credential_backend()
 
     click.echo(f"Config file: {config_path}")
     click.echo(f"Config exists: {config_path.exists()}")
 
     if username:
+        click.echo(f"Backend: {backend}")
         click.echo(f"Username: {username}")
         click.echo(f"Password: {'*' * len(password) if password else 'Not set'}")
     else:
