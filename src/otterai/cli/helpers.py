@@ -1,21 +1,15 @@
 import click
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from ..client import OtterAIClient
 from ..config import load_credentials
 
 
-def _format_timestamp(epoch: int, fmt: str = "%a %b %d, %Y @ %I:%M%p ET") -> str:
-    """Convert epoch timestamp to human-readable string (US Eastern)."""
+def _format_timestamp(epoch: int, fmt: str = "%a %b %d, %Y @ %I:%M%p") -> str:
+    """Convert epoch timestamp to human-readable string in local timezone."""
     if not epoch:
         return ""
-    try:
-        from zoneinfo import ZoneInfo
-
-        dt = datetime.fromtimestamp(epoch, tz=ZoneInfo("America/New_York"))
-    except ImportError:
-        # Python < 3.9 fallback: assume UTC-5
-        dt = datetime.fromtimestamp(epoch, tz=timezone(timedelta(hours=-5)))
+    dt = datetime.fromtimestamp(epoch).astimezone()
     return dt.strftime(fmt)
 
 
