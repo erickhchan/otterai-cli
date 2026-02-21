@@ -16,6 +16,12 @@ uv tool install otterai-cli
 
 This makes the `otter` command available globally.
 
+To update to the latest version:
+
+```bash
+uv tool upgrade otterai-cli
+```
+
 Or run directly without installing:
 
 ```bash
