@@ -52,7 +52,7 @@ otter speeches list                          # list all speeches
 otter speeches list --days 7                 # last 7 days
 otter speeches list --folder "Work"          # by folder name
 otter speeches get SPEECH_ID                 # get speech details + transcript
-otter speeches download SPEECH_ID -f txt     # download as txt, pdf, mp3, docx, or srt
+otter speeches download SPEECH_ID -f txt     # download as txt, pdf, mp3, docx, srt, or md
 otter speeches search "keyword" SPEECH_ID    # search within a speech
 otter speakers list                          # list all speakers
 otter folders list                           # list all folders
@@ -89,8 +89,12 @@ otter speeches get SPEECH_ID
 # Search within a speech
 otter speeches search "search query" SPEECH_ID
 
-# Download a speech (formats: txt, pdf, mp3, docx, srt)
+# Download a speech (formats: txt, pdf, mp3, docx, srt, md)
 otter speeches download SPEECH_ID --format txt
+
+# Download as markdown (generated locally from transcript data)
+otter speeches download SPEECH_ID --format md
+otter speeches download SPEECH_ID --format md --output meeting-notes
 
 # Upload an audio file
 otter speeches upload recording.mp4

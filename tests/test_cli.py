@@ -55,7 +55,7 @@ def test_cli_version(runner):
     """Test that --version works."""
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert "0.1.1" in result.output
 
 
 def test_speeches_help(runner):
@@ -1656,6 +1656,137 @@ def test_format_duration_60_seconds():
 
 
 # =============================================================================
+# Helpers: format_speech_markdown Tests
+# =============================================================================
+
+
+def test_format_speech_markdown_full():
+    """Test markdown formatting with all fields present."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Team Standup",
+            "created_at": 1704067200,
+            "duration": 1800,
+            "folder": {"folder_name": "Work", "id": "f1"},
+            "speakers": [{"speaker_name": "Alice"}, {"speaker_name": "Bob"}],
+            "transcripts": [
+                {"speaker_name": "Alice", "transcript": "Good morning"},
+                {"speaker_name": "Bob", "transcript": "Hey Alice"},
+            ],
+        }
+    }
+    result = format_speech_markdown(data)
+    assert result.startswith("# Team Standup\n")
+    assert "**Date:**" in result
+    assert "**Duration:** 30m" in result
+    assert "**Folder:** Work" in result
+    assert "**Speakers:** Alice, Bob" in result
+    assert "---" in result
+    assert "**Alice:** Good morning" in result
+    assert "**Bob:** Hey Alice" in result
+
+
+def test_format_speech_markdown_minimal():
+    """Test markdown with missing/zero fields produces just a title."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Minimal",
+            "created_at": 0,
+            "duration": 0,
+        }
+    }
+    result = format_speech_markdown(data)
+    assert result.startswith("# Minimal\n")
+    assert "**Date:**" not in result
+    assert "**Duration:**" not in result
+    assert "**Folder:**" not in result
+    assert "**Speakers:**" not in result
+    assert "---" not in result
+
+
+def test_format_speech_markdown_none_title():
+    """Test markdown with None title defaults to Untitled."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {"speech": {"title": None, "created_at": 0, "duration": 0}}
+    result = format_speech_markdown(data)
+    assert result.startswith("# Untitled\n")
+
+
+def test_format_speech_markdown_transcripts_at_top_level():
+    """Test markdown when transcripts are at top-level data, not nested."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Top Level",
+            "created_at": 0,
+            "duration": 0,
+        },
+        "transcripts": [
+            {"speaker_name": "Host", "transcript": "Welcome"},
+        ],
+    }
+    result = format_speech_markdown(data)
+    assert "**Host:** Welcome" in result
+
+
+def test_format_speech_markdown_unknown_speaker():
+    """Test markdown with missing speaker_name defaults to Unknown."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Test",
+            "created_at": 0,
+            "duration": 0,
+            "transcripts": [
+                {"transcript": "Some text"},
+            ],
+        }
+    }
+    result = format_speech_markdown(data)
+    assert "**Unknown:** Some text" in result
+
+
+def test_format_speech_markdown_empty_transcripts():
+    """Test markdown with empty transcripts list omits separator."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Empty",
+            "created_at": 0,
+            "duration": 0,
+            "transcripts": [],
+        }
+    }
+    result = format_speech_markdown(data)
+    assert "---" not in result
+
+
+def test_format_speech_markdown_empty_data():
+    """Test markdown with completely empty data dict."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    result = format_speech_markdown({})
+    assert result.startswith("# Untitled\n")
+
+
+def test_format_speech_markdown_empty_string_title():
+    """Test markdown with empty string title defaults to Untitled."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {"speech": {"title": "", "created_at": 0, "duration": 0}}
+    result = format_speech_markdown(data)
+    assert result.startswith("# Untitled\n")
+
+
+# =============================================================================
 # Helpers: _resolve_folder_id Tests
 # =============================================================================
 
@@ -1930,6 +2061,109 @@ def test_speeches_search_with_size(runner, saved_credentials, mock_login):
 # =============================================================================
 # Speeches: download with default format (txt)
 # =============================================================================
+
+
+def test_speeches_download_markdown(runner, saved_credentials, mock_login, tmp_path, monkeypatch):
+    """Test downloading a speech as markdown."""
+    monkeypatch.chdir(tmp_path)
+    mock_login.get(
+        API_BASE + "speech",
+        json={
+            "speech": {
+                "title": "My Meeting",
+                "otid": "abc123",
+                "created_at": 1704067200,
+                "duration": 7200,
+                "folder": {"folder_name": "Work", "id": "f1"},
+                "speakers": [{"speaker_name": "Alice"}, {"speaker_name": "Bob"}],
+                "transcripts": [
+                    {"speaker_name": "Alice", "transcript": "Hello everyone"},
+                    {"speaker_name": "Bob", "transcript": "Hi Alice"},
+                ],
+            }
+        },
+        status=200,
+    )
+    result = runner.invoke(main, ["speeches", "download", "abc123", "--format", "md"])
+    assert result.exit_code == 0
+    assert "Downloaded: abc123.md" in result.output
+    md_file = tmp_path / "abc123.md"
+    assert md_file.exists()
+    content = md_file.read_text()
+    assert "# My Meeting" in content
+    assert "**Duration:** 2h 0m" in content
+    assert "**Folder:** Work" in content
+    assert "**Speakers:** Alice, Bob" in content
+    assert "**Alice:** Hello everyone" in content
+    assert "**Bob:** Hi Alice" in content
+
+
+def test_speeches_download_markdown_with_name(runner, saved_credentials, mock_login, tmp_path, monkeypatch):
+    """Test markdown download with custom output filename."""
+    monkeypatch.chdir(tmp_path)
+    mock_login.get(
+        API_BASE + "speech",
+        json={
+            "speech": {
+                "title": "Meeting",
+                "otid": "abc123",
+                "created_at": 0,
+                "duration": 0,
+            }
+        },
+        status=200,
+    )
+    result = runner.invoke(
+        main, ["speeches", "download", "abc123", "--format", "md", "--output", "myfile"]
+    )
+    assert result.exit_code == 0
+    assert "Downloaded: myfile.md" in result.output
+    assert (tmp_path / "myfile.md").exists()
+
+
+def test_speeches_download_markdown_alias(runner, saved_credentials, mock_login, tmp_path, monkeypatch):
+    """Test that --format markdown works as alias for md."""
+    monkeypatch.chdir(tmp_path)
+    mock_login.get(
+        API_BASE + "speech",
+        json={
+            "speech": {
+                "title": "Test",
+                "otid": "abc123",
+                "created_at": 0,
+                "duration": 0,
+            }
+        },
+        status=200,
+    )
+    result = runner.invoke(
+        main, ["speeches", "download", "abc123", "--format", "markdown"]
+    )
+    assert result.exit_code == 0
+    assert "Downloaded: abc123.md" in result.output
+    assert (tmp_path / "abc123.md").exists()
+
+
+def test_speeches_download_markdown_api_failure(runner, saved_credentials, mock_login, tmp_path, monkeypatch):
+    """Test markdown download when API returns error."""
+    monkeypatch.chdir(tmp_path)
+    mock_login.get(
+        API_BASE + "speech",
+        json={"error": "not found"},
+        status=404,
+    )
+    result = runner.invoke(main, ["speeches", "download", "abc123", "--format", "md"])
+    assert result.exit_code == 1
+    assert "Failed to get speech" in result.output
+
+
+def test_speeches_download_markdown_mixed_format_rejected(runner, saved_credentials, mock_login):
+    """Test that combining md with other formats is rejected."""
+    result = runner.invoke(
+        main, ["speeches", "download", "abc123", "--format", "txt,md"]
+    )
+    assert result.exit_code == 1
+    assert "cannot be combined" in result.output
 
 
 def test_speeches_download_default_format(runner, saved_credentials, mock_login, tmp_path, monkeypatch):

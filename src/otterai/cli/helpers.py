@@ -49,6 +49,55 @@ def _resolve_folder_id(client: OtterAIClient, folder_ref: str) -> str:
     )
 
 
+def format_speech_markdown(data: dict) -> str:
+    """Format a get_speech() response as a Markdown document.
+
+    Parameters
+    ----------
+    data : dict
+        The ``result["data"]`` dict from ``client.get_speech()``.
+        Contains ``speech`` (dict) and optionally ``transcripts`` (list).
+    """
+    speech = data.get("speech", {})
+
+    title = speech.get("title") or "Untitled"
+    created = speech.get("created_at", 0)
+    duration = speech.get("duration", 0)
+    speakers = [
+        s.get("speaker_name", "")
+        for s in speech.get("speakers", [])
+        if s.get("speaker_name")
+    ]
+
+    lines = [f"# {title}", ""]
+
+    if created:
+        lines.append(f"**Date:** {_format_timestamp(created)}")
+    if duration:
+        lines.append(f"**Duration:** {_format_duration(duration)}")
+
+    folder_info = speech.get("folder")
+    if isinstance(folder_info, dict) and folder_info.get("folder_name"):
+        lines.append(f"**Folder:** {folder_info['folder_name']}")
+
+    if speakers:
+        lines.append(f"**Speakers:** {', '.join(speakers)}")
+
+    # Support both nested and top-level transcript locations
+    transcripts = speech.get("transcripts") or data.get("transcripts", [])
+    if transcripts:
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        for t in transcripts:
+            speaker = t.get("speaker_name", "Unknown")
+            text = t.get("transcript", "")
+            lines.append(f"**{speaker}:** {text}")
+            lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
 def get_authenticated_client() -> OtterAIClient:
     """Get an authenticated OtterAIClient."""
     username, password = load_credentials()

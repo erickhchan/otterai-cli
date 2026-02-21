@@ -10,6 +10,7 @@ from .helpers import (
     _format_timestamp,
     _format_duration,
     _resolve_folder_id,
+    format_speech_markdown,
 )
 
 
@@ -238,7 +239,7 @@ def speeches_rename(speech_id: str, title: str):
     "-f",
     "fileformat",
     default="txt",
-    help="Format(s): txt, pdf, mp3, docx, srt (comma-separated, default: txt)",
+    help="Format(s): txt, pdf, mp3, docx, srt, md (comma-separated, default: txt)",
 )
 @click.option(
     "--output", "-o", "name", default=None, help="Output filename (optional)"
@@ -246,6 +247,32 @@ def speeches_rename(speech_id: str, title: str):
 def speeches_download(speech_id: str, fileformat: str, name: str):
     """Download a speech in specified format(s)."""
     client = get_authenticated_client()
+
+    # Handle markdown format locally (not supported by bulk_export API)
+    formats = [f.strip() for f in fileformat.split(",")]
+    has_md = any(f in ("md", "markdown") for f in formats)
+    if has_md and len(formats) > 1:
+        click.echo(
+            "Error: md format cannot be combined with other formats.", err=True
+        )
+        sys.exit(1)
+    if has_md:
+        try:
+            result = client.get_speech(speech_id)
+        except OtterAIError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+        if result["status"] != 200:
+            click.echo(f"Failed to get speech: {result}", err=True)
+            sys.exit(1)
+
+        content = format_speech_markdown(result["data"])
+        filename = (name if name is not None else speech_id) + ".md"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(content)
+        click.echo(f"Downloaded: {filename}")
+        return
 
     try:
         result = client.download_speech(speech_id, name=name, fileformat=fileformat)
