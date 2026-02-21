@@ -1,9 +1,17 @@
+.idea/
+.vscode/
+.DS_Store
 __pycache__/
+*.pyc
 *.egg-info/
+*.egg
 build/
 dist/
 .coverage
 cov.xml
 .env
 .venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
 tests/output/
