@@ -1668,7 +1668,11 @@ def test_format_speech_markdown_full():
         "speech": {
             "title": "Team Standup",
             "created_at": 1704067200,
+            "start_time": 1704067200,
+            "end_time": 1704069000,
             "duration": 1800,
+            "summary": "Daily sync summary",
+            "speech_id": "SPEECH123",
             "folder": {"folder_name": "Work", "id": "f1"},
             "speakers": [{"speaker_name": "Alice"}, {"speaker_name": "Bob"}],
             "transcripts": [
@@ -1678,12 +1682,23 @@ def test_format_speech_markdown_full():
         }
     }
     result = format_speech_markdown(data)
-    assert result.startswith("# Team Standup\n")
-    assert "**Date:**" in result
-    assert "**Duration:** 30m" in result
-    assert "**Folder:** Work" in result
-    assert "**Speakers:** Alice, Bob" in result
-    assert "---" in result
+    assert result.startswith("---\n")
+    assert 'title: "Team Standup"' in result
+    assert 'summary: "Daily sync summary"' in result
+    assert 'start_time: "2024-01-01T00:00:00Z"' in result
+    assert 'end_time: "2024-01-01T00:30:00Z"' in result
+    assert "duration_seconds: 1800" in result
+    assert 'source: "otter.ai"' in result
+    assert 'speech_id: "SPEECH123"' in result
+    assert 'folder: "Work"' in result
+    assert 'folder_id: "f1"' in result
+    assert "speakers:" in result
+    assert '  - "Alice"' in result
+    assert '  - "Bob"' in result
+    assert "created_at:" not in result
+    assert "otid:" not in result
+    assert "# Team Standup" in result
+    assert "## Transcript" in result
     assert "**Alice:** Good morning" in result
     assert "**Bob:** Hey Alice" in result
 
@@ -1700,12 +1715,17 @@ def test_format_speech_markdown_minimal():
         }
     }
     result = format_speech_markdown(data)
-    assert result.startswith("# Minimal\n")
-    assert "**Date:**" not in result
-    assert "**Duration:**" not in result
-    assert "**Folder:**" not in result
-    assert "**Speakers:**" not in result
-    assert "---" not in result
+    assert result.startswith("---\n")
+    assert 'title: "Minimal"' in result
+    assert "summary:" not in result
+    assert "start_time:" not in result
+    assert "end_time:" not in result
+    assert "duration_seconds:" not in result
+    assert 'source: "otter.ai"' in result
+    assert "speech_id:" not in result
+    assert "folder:" not in result
+    assert "speakers:" not in result
+    assert "# Minimal" in result
 
 
 def test_format_speech_markdown_none_title():
@@ -1714,7 +1734,8 @@ def test_format_speech_markdown_none_title():
 
     data = {"speech": {"title": None, "created_at": 0, "duration": 0}}
     result = format_speech_markdown(data)
-    assert result.startswith("# Untitled\n")
+    assert 'title: "Untitled"' in result
+    assert "# Untitled" in result
 
 
 def test_format_speech_markdown_transcripts_at_top_level():
@@ -1732,7 +1753,38 @@ def test_format_speech_markdown_transcripts_at_top_level():
         ],
     }
     result = format_speech_markdown(data)
+    assert "## Transcript" in result
     assert "**Host:** Welcome" in result
+
+
+def test_format_speech_markdown_custom_fields():
+    """Test custom fields output includes only selected fields."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Custom",
+            "summary": "Should not be included",
+            "speech_id": "sp1",
+            "transcripts": [{"transcript": "Hi"}],
+        }
+    }
+    result = format_speech_markdown(
+        data,
+        frontmatter_fields=["speech_id", "title"],
+    )
+    assert 'speech_id: "sp1"' in result
+    assert 'title: "Custom"' in result
+    assert 'summary: "Should not be included"' not in result
+
+
+def test_format_speech_markdown_invalid_field_raises():
+    """Test invalid custom frontmatter field raises a clear error."""
+    from otterai.cli.helpers import format_speech_markdown
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown frontmatter field"):
+        format_speech_markdown({}, frontmatter_fields=["invalid_field"])
 
 
 def test_format_speech_markdown_unknown_speaker():
@@ -1766,7 +1818,7 @@ def test_format_speech_markdown_empty_transcripts():
         }
     }
     result = format_speech_markdown(data)
-    assert "---" not in result
+    assert "## Transcript" not in result
 
 
 def test_format_speech_markdown_empty_data():
@@ -1774,7 +1826,9 @@ def test_format_speech_markdown_empty_data():
     from otterai.cli.helpers import format_speech_markdown
 
     result = format_speech_markdown({})
-    assert result.startswith("# Untitled\n")
+    assert result.startswith("---\n")
+    assert 'title: "Untitled"' in result
+    assert "# Untitled" in result
 
 
 def test_format_speech_markdown_empty_string_title():
@@ -1783,7 +1837,8 @@ def test_format_speech_markdown_empty_string_title():
 
     data = {"speech": {"title": "", "created_at": 0, "duration": 0}}
     result = format_speech_markdown(data)
-    assert result.startswith("# Untitled\n")
+    assert 'title: "Untitled"' in result
+    assert "# Untitled" in result
 
 
 # =============================================================================
@@ -2073,7 +2128,11 @@ def test_speeches_download_markdown(runner, saved_credentials, mock_login, tmp_p
                 "title": "My Meeting",
                 "otid": "abc123",
                 "created_at": 1704067200,
+                "start_time": 1704067200,
+                "end_time": 1704074400,
+                "summary": "Weekly sync",
                 "duration": 7200,
+                "speech_id": "SP123",
                 "folder": {"folder_name": "Work", "id": "f1"},
                 "speakers": [{"speaker_name": "Alice"}, {"speaker_name": "Bob"}],
                 "transcripts": [
@@ -2090,10 +2149,20 @@ def test_speeches_download_markdown(runner, saved_credentials, mock_login, tmp_p
     md_file = tmp_path / "abc123.md"
     assert md_file.exists()
     content = md_file.read_text()
+    assert content.startswith("---\n")
+    assert 'title: "My Meeting"' in content
+    assert 'summary: "Weekly sync"' in content
+    assert 'start_time: "2024-01-01T00:00:00Z"' in content
+    assert 'end_time: "2024-01-01T02:00:00Z"' in content
+    assert "duration_seconds: 7200" in content
+    assert 'source: "otter.ai"' in content
+    assert 'speech_id: "SP123"' in content
+    assert 'folder: "Work"' in content
+    assert "speakers:" in content
+    assert '  - "Alice"' in content
+    assert '  - "Bob"' in content
     assert "# My Meeting" in content
-    assert "**Duration:** 2h 0m" in content
-    assert "**Folder:** Work" in content
-    assert "**Speakers:** Alice, Bob" in content
+    assert "## Transcript" in content
     assert "**Alice:** Hello everyone" in content
     assert "**Bob:** Hi Alice" in content
 
@@ -2142,6 +2211,110 @@ def test_speeches_download_markdown_alias(runner, saved_credentials, mock_login,
     assert result.exit_code == 0
     assert "Downloaded: abc123.md" in result.output
     assert (tmp_path / "abc123.md").exists()
+
+
+def test_speeches_download_markdown_custom_frontmatter_fields(
+    runner, saved_credentials, mock_login, tmp_path, monkeypatch
+):
+    """Test markdown download with custom field selection."""
+    monkeypatch.chdir(tmp_path)
+    mock_login.get(
+        API_BASE + "speech",
+        json={
+            "speech": {
+                "title": "Custom Fields",
+                "speech_id": "sp42",
+                "summary": "S",
+                "duration": 120,
+                "transcripts": [{"transcript": "Hello"}],
+            }
+        },
+        status=200,
+    )
+    result = runner.invoke(
+        main,
+        [
+            "speeches",
+            "download",
+            "abc123",
+            "--format",
+            "md",
+            "--frontmatter-fields",
+            "speech_id,title",
+        ],
+    )
+    assert result.exit_code == 0
+    content = (tmp_path / "abc123.md").read_text()
+    assert 'speech_id: "sp42"' in content
+    assert 'title: "Custom Fields"' in content
+    assert 'summary: "S"' not in content
+
+
+def test_speeches_download_markdown_invalid_frontmatter_field(
+    runner, saved_credentials, mock_login
+):
+    """Test invalid frontmatter field exits with error."""
+    result = runner.invoke(
+        main,
+        [
+            "speeches",
+            "download",
+            "abc123",
+            "--format",
+            "md",
+            "--frontmatter-fields",
+            "title,invalid",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Unknown frontmatter field" in result.output
+
+
+def test_speeches_download_frontmatter_options_non_md_rejected(
+    runner, saved_credentials, mock_login
+):
+    """Test md-only frontmatter options are rejected for non-md format."""
+    result = runner.invoke(
+        main,
+        [
+            "speeches",
+            "download",
+            "abc123",
+            "--format",
+            "txt",
+            "--frontmatter-fields",
+            "title",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "only valid with md format" in result.output
+
+
+def test_speeches_download_frontmatter_default_non_md_allowed(
+    runner, saved_credentials, mock_login, tmp_path, monkeypatch
+):
+    """Test default/blank-equivalent frontmatter fields are no-op on non-md."""
+    monkeypatch.chdir(tmp_path)
+    mock_login.post(
+        API_BASE + "bulk_export",
+        body=b"txt content",
+        status=200,
+        content_type="application/octet-stream",
+    )
+    result = runner.invoke(
+        main,
+        [
+            "speeches",
+            "download",
+            "abc123",
+            "--format",
+            "txt",
+            "--frontmatter-fields",
+            " DEFAULT ",
+        ],
+    )
+    assert result.exit_code == 0
+    assert (tmp_path / "abc123.txt").exists()
 
 
 def test_speeches_download_markdown_api_failure(runner, saved_credentials, mock_login, tmp_path, monkeypatch):

@@ -10,6 +10,8 @@ from .helpers import (
     _format_timestamp,
     _format_duration,
     _resolve_folder_id,
+    FRONTMATTER_AVAILABLE_FIELDS,
+    parse_frontmatter_fields,
     format_speech_markdown,
 )
 
@@ -244,9 +246,23 @@ def speeches_rename(speech_id: str, title: str):
 @click.option(
     "--output", "-o", "name", default=None, help="Output filename (optional)"
 )
-def speeches_download(speech_id: str, fileformat: str, name: str):
+@click.option(
+    "--frontmatter-fields",
+    default="default",
+    help=(
+        "For md only: comma-separated frontmatter fields, or 'default'/'none'. "
+        f"Available: {', '.join(FRONTMATTER_AVAILABLE_FIELDS)}"
+    ),
+)
+def speeches_download(
+    speech_id: str,
+    fileformat: str,
+    name: str,
+    frontmatter_fields: str,
+):
     """Download a speech in specified format(s)."""
     client = get_authenticated_client()
+    frontmatter_fields_spec = (frontmatter_fields or "").strip().lower()
 
     # Handle markdown format locally (not supported by bulk_export API)
     formats = [f.strip() for f in fileformat.split(",")]
@@ -256,7 +272,19 @@ def speeches_download(speech_id: str, fileformat: str, name: str):
             "Error: md format cannot be combined with other formats.", err=True
         )
         sys.exit(1)
+    if not has_md and (frontmatter_fields_spec not in ("", "default")):
+        click.echo(
+            "Error: --frontmatter-fields is only valid with md format.",
+            err=True,
+        )
+        sys.exit(1)
     if has_md:
+        try:
+            selected_fields = parse_frontmatter_fields(frontmatter_fields)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
         try:
             result = client.get_speech(speech_id)
         except OtterAIError as e:
@@ -267,7 +295,10 @@ def speeches_download(speech_id: str, fileformat: str, name: str):
             click.echo(f"Failed to get speech: {result}", err=True)
             sys.exit(1)
 
-        content = format_speech_markdown(result["data"])
+        content = format_speech_markdown(
+            result["data"],
+            frontmatter_fields=selected_fields,
+        )
         filename = (name if name is not None else speech_id) + ".md"
         with open(filename, "w", encoding="utf-8") as f:
             f.write(content)

@@ -95,6 +95,7 @@ otter speeches download SPEECH_ID --format txt
 # Download as markdown (generated locally from transcript data)
 otter speeches download SPEECH_ID --format md
 otter speeches download SPEECH_ID --format md --output meeting-notes
+otter speeches download SPEECH_ID --format md --frontmatter-fields "title,summary,speakers,start_time,end_time,duration_seconds,source,speech_id,folder,folder_id"
 
 # Upload an audio file
 otter speeches upload recording.mp4
@@ -112,6 +113,55 @@ otter speeches move ID1 ID2 ID3 --folder "CoverNode"
 # Move to a new folder (auto-create if it doesn't exist)
 otter speeches move SPEECH_ID --folder "New Folder" --create
 ```
+
+#### Markdown frontmatter (`--format md`)
+
+Markdown export includes YAML frontmatter, configurable per download:
+
+```bash
+# Use defaults
+otter speeches download SPEECH_ID --format md
+
+# Pick exact fields (in your own order)
+otter speeches download SPEECH_ID --format md --frontmatter-fields "title,speech_id,summary"
+
+# Disable all frontmatter fields
+otter speeches download SPEECH_ID --format md --frontmatter-fields none
+```
+
+Default frontmatter fields (in order):
+1. `title`
+2. `summary`
+3. `speakers`
+4. `start_time`
+5. `end_time`
+6. `duration_seconds`
+7. `source`
+8. `speech_id`
+9. `folder`
+10. `folder_id`
+
+Available frontmatter fields for `--frontmatter-fields`:
+- `title`
+- `summary`
+- `speakers`
+- `start_time`
+- `end_time`
+- `duration_seconds`
+- `source`
+- `speech_id`
+- `folder`
+- `folder_id`
+- `otid`
+- `created_at`
+- `transcript_updated_at`
+- `language`
+- `transcript_count`
+- `process_status`
+
+Notes:
+- `--frontmatter-fields` is valid only with `--format md`.
+- `speech_id` in frontmatter is the Otter internal `speech_id`; command argument `SPEECH_ID` still expects the `otid`.
 
 ### Speakers
 
