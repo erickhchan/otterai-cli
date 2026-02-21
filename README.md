@@ -4,6 +4,10 @@ An unofficial command-line interface for [Otter.ai](https://otter.ai).
 
 > **Note:** This project is not affiliated with or endorsed by Otter.ai / Aisense Inc.
 
+## Requirements
+
+- Python 3.10+
+
 ## Installation
 
 ```bash
@@ -165,3 +169,7 @@ uv run pytest        # run tests
 ## Acknowledgements
 
 Based on [gmchad/otterai-api](https://github.com/gmchad/otterai-api) by Chad Lohrli, with CLI functionality from [PR #9](https://github.com/gmchad/otterai-api/pull/9) by [@andrewfurman](https://github.com/andrewfurman).
+
+## License
+
+MIT
