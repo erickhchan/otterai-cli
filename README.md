@@ -28,16 +28,9 @@ uvx --from otterai-cli otter --help
 otter login
 ```
 
-This prompts for your Otter.ai email and password. Credentials are saved to `~/.otterai/config.json`.
+Credentials are stored in your OS keychain (macOS Keychain, Windows Credential Locker, etc.) via [keyring](https://pypi.org/project/keyring/), with `~/.otterai/config.json` as fallback.
 
-### Alternative methods
-
-**Environment variables** (take precedence over config file):
-
-```bash
-export OTTERAI_USERNAME="your-email@example.com"
-export OTTERAI_PASSWORD="your-password"
-```
+You can also use environment variables (`OTTERAI_USERNAME`, `OTTERAI_PASSWORD`), which take highest precedence.
 
 ### Auth commands
 
