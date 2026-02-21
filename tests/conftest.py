@@ -1,5 +1,3 @@
-import os
-
 import pytest
 import responses
 from click.testing import CliRunner
@@ -47,3 +45,9 @@ def mock_login(mock_api):
         status=200,
     )
     return mock_api
+
+
+@pytest.fixture(autouse=True)
+def no_backoff_sleep(monkeypatch):
+    """Keep tests fast by stubbing retry sleep globally."""
+    monkeypatch.setattr("otterai.client.time.sleep", lambda _: None)

@@ -1,6 +1,7 @@
 """Tests for the OtterAIClient -- real Session code, HTTP intercepted by responses."""
 
 import os
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -207,6 +208,137 @@ class TestHandleResponse:
         result = client._handle_response(resp, data={"custom": "value"})
         assert result["data"] == {"custom": "value"}
         assert result["status"] == 200
+
+    def test_data_override_empty_dict(self, mock_api):
+        """Explicitly passing {} should still override response JSON."""
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        mock_api.get(API_BASE + "user", json={"ignored": True}, status=200)
+        resp = client._session.get(API_BASE + "user", timeout=30)
+        result = client._handle_response(resp, data={})
+        assert result["data"] == {}
+        assert result["status"] == 200
+
+
+class TestRetries:
+    def test_retries_429_then_succeeds(self, mock_api, monkeypatch):
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        mock_api.get(API_BASE + "user", json={"error": "rate limit"}, status=429)
+        mock_api.get(API_BASE + "user", json={"email": "ok@example.com"}, status=200)
+
+        result = client.get_user()
+        assert result["status"] == 200
+        assert result["data"]["email"] == "ok@example.com"
+        assert sleep_calls == [1]
+        assert len(mock_api.calls) == 3
+
+    def test_retries_500_then_succeeds_on_post(self, mock_api, monkeypatch):
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        mock_api.post(
+            API_BASE + "create_folder", json={"error": "internal"}, status=500
+        )
+        mock_api.post(
+            API_BASE + "create_folder",
+            json={"folder": {"id": "f1", "folder_name": "Work"}},
+            status=200,
+        )
+
+        result = client.create_folder("Work")
+        assert result["status"] == 200
+        assert result["data"]["folder"]["id"] == "f1"
+        assert sleep_calls == [1]
+        assert len(mock_api.calls) == 3
+
+    def test_retry_after_header_overrides_exponential_backoff(
+        self, mock_api, monkeypatch
+    ):
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        mock_api.get(
+            API_BASE + "user",
+            json={"error": "rate limit"},
+            status=429,
+            headers={"Retry-After": "3"},
+        )
+        mock_api.get(API_BASE + "user", json={"email": "ok@example.com"}, status=200)
+
+        result = client.get_user()
+        assert result["status"] == 200
+        assert sleep_calls == [3.0]
+
+    def test_retry_after_http_date_header_overrides_exponential_backoff(
+        self, mock_api, monkeypatch
+    ):
+        class FixedDatetime:
+            @staticmethod
+            def now(tz=None):
+                return datetime(2026, 2, 21, 12, 0, 0, tzinfo=timezone.utc)
+
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+        monkeypatch.setattr("otterai.client.datetime", FixedDatetime)
+
+        mock_api.get(
+            API_BASE + "user",
+            json={"error": "rate limit"},
+            status=429,
+            headers={"Retry-After": "Sat, 21 Feb 2026 12:00:04 GMT"},
+        )
+        mock_api.get(API_BASE + "user", json={"email": "ok@example.com"}, status=200)
+
+        result = client.get_user()
+        assert result["status"] == 200
+        assert sleep_calls == [4.0]
+
+    def test_does_not_retry_non_retryable_4xx(self, mock_api, monkeypatch):
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        mock_api.get(API_BASE + "user", json={"error": "bad request"}, status=400)
+
+        result = client.get_user()
+        assert result["status"] == 400
+        assert sleep_calls == []
+        assert len(mock_api.calls) == 2
+
+    def test_returns_last_retryable_response_after_max_attempts(
+        self, mock_api, monkeypatch
+    ):
+        client = OtterAIClient()
+        client.RETRY_MAX_ATTEMPTS = 2
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        for _ in range(client.RETRY_MAX_ATTEMPTS + 1):
+            mock_api.get(API_BASE + "user", json={"error": "still failing"}, status=500)
+
+        result = client.get_user()
+        assert result["status"] == 500
+        assert sleep_calls == [1, 2]
+        assert len(mock_api.calls) == 4
 
 
 # ============================================================================
@@ -627,9 +759,7 @@ class TestSetTranscriptSpeaker:
         client = OtterAIClient()
         _login(client, mock_api)
 
-        mock_api.get(
-            API_BASE + "set_transcript_speaker", json={"ok": True}, status=200
-        )
+        mock_api.get(API_BASE + "set_transcript_speaker", json={"ok": True}, status=200)
         result = client.set_transcript_speaker(
             "speech1", "tuuid1", "spk1", "Alice", create_speaker=False
         )
@@ -694,9 +824,7 @@ class TestMoveToTrashBin:
         client = OtterAIClient()
         _login(client, mock_api)
 
-        mock_api.post(
-            API_BASE + "move_to_trash_bin", json={"ok": True}, status=200
-        )
+        mock_api.post(API_BASE + "move_to_trash_bin", json={"ok": True}, status=200)
         result = client.move_to_trash_bin("abc")
         assert result["status"] == 200
 
@@ -791,7 +919,9 @@ class TestDownloadSpeech:
         ],
         ids=["txt", "pdf", "srt", "docx", "mp3", "two_formats", "all_formats"],
     )
-    def test_filename_extension_logic(self, mock_api, tmp_path, fileformat, expected_ext):
+    def test_filename_extension_logic(
+        self, mock_api, tmp_path, fileformat, expected_ext
+    ):
         """Single format uses its extension; multi-format uses .zip."""
         client = OtterAIClient()
         _login(client, mock_api)
@@ -817,7 +947,9 @@ class TestDownloadSpeech:
         original_dir = os.getcwd()
         try:
             os.chdir(tmp_path)
-            result = client.download_speech("abc123", name="my_meeting", fileformat="pdf")
+            result = client.download_speech(
+                "abc123", name="my_meeting", fileformat="pdf"
+            )
         finally:
             os.chdir(original_dir)
 
@@ -1146,6 +1278,80 @@ class TestUploadSpeech:
         result = client.upload_speech(str(audio_file))
         assert result["status"] == 200
 
+    def test_upload_options_retries_on_5xx(self, mock_api, tmp_path, monkeypatch):
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        mock_api.get(
+            API_BASE + "speech_upload_params",
+            json={"data": dict(self.UPLOAD_PARAMS_DATA)},
+            status=200,
+        )
+        mock_api.add(
+            responses.Response(method="OPTIONS", url=self.S3_UPLOAD_URL, status=503)
+        )
+        mock_api.add(
+            responses.Response(method="OPTIONS", url=self.S3_UPLOAD_URL, status=200)
+        )
+        mock_api.post(
+            self.S3_UPLOAD_URL,
+            body=self.S3_XML_RESPONSE,
+            status=201,
+            content_type="application/xml",
+        )
+        mock_api.get(
+            API_BASE + "finish_speech_upload",
+            json={"speech_id": "new_speech_id", "status": "processing"},
+            status=200,
+        )
+
+        audio_file = tmp_path / "audio.mp4"
+        audio_file.write_bytes(b"\x00" * 10)
+
+        result = client.upload_speech(str(audio_file))
+        assert result["status"] == 200
+        assert sleep_calls == [1]
+        assert len(mock_api.calls) == 6
+
+    def test_upload_s3_post_retries_on_5xx(self, mock_api, tmp_path, monkeypatch):
+        client = OtterAIClient()
+        _login(client, mock_api)
+
+        sleep_calls = []
+        monkeypatch.setattr("otterai.client.time.sleep", sleep_calls.append)
+
+        mock_api.get(
+            API_BASE + "speech_upload_params",
+            json={"data": dict(self.UPLOAD_PARAMS_DATA)},
+            status=200,
+        )
+        mock_api.add(
+            responses.Response(method="OPTIONS", url=self.S3_UPLOAD_URL, status=200)
+        )
+        mock_api.post(self.S3_UPLOAD_URL, body="temporary error", status=503)
+        mock_api.post(
+            self.S3_UPLOAD_URL,
+            body=self.S3_XML_RESPONSE,
+            status=201,
+            content_type="application/xml",
+        )
+        mock_api.get(
+            API_BASE + "finish_speech_upload",
+            json={"speech_id": "new_speech_id", "status": "processing"},
+            status=200,
+        )
+
+        audio_file = tmp_path / "audio.mp4"
+        audio_file.write_bytes(b"\x00" * 10)
+
+        result = client.upload_speech(str(audio_file))
+        assert result["status"] == 200
+        assert sleep_calls == [1]
+        assert len(mock_api.calls) == 6
+
 
 # ============================================================================
 # Cross-cutting: server errors on POST endpoints
@@ -1164,7 +1370,13 @@ class TestPostEndpointErrors:
             ("move_to_trash_bin", "move_to_trash_bin", ["abc"]),
             ("add_folder_speeches", "add_folder_speeches", ["f1", ["s1"]]),
         ],
-        ids=["create_folder", "rename_folder", "create_speaker", "trash", "add_speeches"],
+        ids=[
+            "create_folder",
+            "rename_folder",
+            "create_speaker",
+            "trash",
+            "add_speeches",
+        ],
     )
     def test_500_returns_error_status(self, mock_api, method_name, url_suffix, args):
         client = OtterAIClient()

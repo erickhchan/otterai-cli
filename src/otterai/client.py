@@ -1,5 +1,7 @@
-import json
+import time
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
@@ -13,6 +15,9 @@ class OtterAIClient:
     API_BASE_URL = "https://otter.ai/forward/api/v1/"
     S3_BASE_URL = "https://s3.us-west-2.amazonaws.com/"
     DEFAULT_TIMEOUT = 30
+    RETRY_MAX_ATTEMPTS = 4
+    RETRY_BACKOFF_BASE_SECONDS = 1
+    RETRY_BACKOFF_MAX_SECONDS = 16
 
     def __init__(self):
         self._session = requests.Session()
@@ -29,8 +34,61 @@ class OtterAIClient:
             "referer": "https://otter.ai/",
         }
 
+    @staticmethod
+    def _is_retryable_status(status_code):
+        return status_code == requests.codes.too_many_requests or (
+            requests.codes.internal_server_error <= status_code < 600
+        )
+
+    def _retry_delay_seconds(self, response, attempt):
+        retry_after = response.headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                return min(
+                    max(float(retry_after), 0),
+                    self.RETRY_BACKOFF_MAX_SECONDS,
+                )
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(retry_after)
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=timezone.utc)
+                    delay = max(
+                        (retry_at - datetime.now(timezone.utc)).total_seconds(),
+                        0,
+                    )
+                    return min(delay, self.RETRY_BACKOFF_MAX_SECONDS)
+                except (TypeError, ValueError, OverflowError):
+                    pass
+
+        delay = self.RETRY_BACKOFF_BASE_SECONDS * (2**attempt)
+        return min(delay, self.RETRY_BACKOFF_MAX_SECONDS)
+
+    def _execute_with_retry(self, request_fn):
+        for attempt in range(self.RETRY_MAX_ATTEMPTS + 1):
+            response = request_fn()
+            if not self._is_retryable_status(response.status_code):
+                return response
+            if attempt == self.RETRY_MAX_ATTEMPTS:
+                return response
+
+            time.sleep(self._retry_delay_seconds(response, attempt))
+
+        # Unreachable due to loop returns, kept for type/checker friendliness.
+        return response
+
+    def _request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", self.DEFAULT_TIMEOUT)
+        return self._execute_with_retry(
+            lambda: self._session.request(method, url, **kwargs)
+        )
+
+    def _send(self, request, **kwargs):
+        kwargs.setdefault("timeout", self.DEFAULT_TIMEOUT)
+        return self._execute_with_retry(lambda: self._session.send(request, **kwargs))
+
     def _handle_response(self, response, data=None):
-        if data:
+        if data is not None:
             return {"status": response.status_code, "data": data}
         try:
             return {"status": response.status_code, "data": response.json()}
@@ -44,9 +102,7 @@ class OtterAIClient:
 
         self._session.auth = (username, password)
 
-        response = self._session.get(
-            auth_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", auth_url, params=payload)
 
         if response.status_code != requests.codes.ok:
             return self._handle_response(response)
@@ -60,7 +116,7 @@ class OtterAIClient:
         self._require_userid()
         user_url = self.API_BASE_URL + "user"
 
-        response = self._session.get(user_url, timeout=self.DEFAULT_TIMEOUT)
+        response = self._request("GET", user_url)
 
         return self._handle_response(response)
 
@@ -70,9 +126,7 @@ class OtterAIClient:
 
         payload = {"userid": self._userid}
 
-        response = self._session.get(
-            speakers_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", speakers_url, params=payload)
 
         return self._handle_response(response)
 
@@ -89,9 +143,7 @@ class OtterAIClient:
             "source": source,
         }
 
-        response = self._session.get(
-            speeches_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", speeches_url, params=payload)
 
         return self._handle_response(response)
 
@@ -101,9 +153,7 @@ class OtterAIClient:
 
         payload = {"userid": self._userid, "otid": speech_id}
 
-        response = self._session.get(
-            speech_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", speech_url, params=payload)
 
         return self._handle_response(response)
 
@@ -113,9 +163,7 @@ class OtterAIClient:
 
         payload = {"otid": speech_id, "title": title}
 
-        response = self._session.get(
-            set_title_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", set_title_url, params=payload)
 
         return self._handle_response(response)
 
@@ -125,9 +173,7 @@ class OtterAIClient:
 
         payload = {"query": query, "size": size, "otid": speech_id}
 
-        response = self._session.get(
-            query_speech_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", query_speech_url, params=payload)
 
         return self._handle_response(response)
 
@@ -138,9 +184,7 @@ class OtterAIClient:
         finish_speech_upload = self.API_BASE_URL + "finish_speech_upload"
 
         payload = {"userid": self._userid}
-        response = self._session.get(
-            speech_upload_params_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", speech_upload_params_url, params=payload)
 
         if response.status_code != requests.codes.ok:
             return self._handle_response(response)
@@ -155,35 +199,34 @@ class OtterAIClient:
         prep_req.headers["Referer"] = "https://otter.ai/"
         prep_req.headers["Access-Control-Request-Method"] = "POST"
 
-        response = self._session.send(prep_req, timeout=self.DEFAULT_TIMEOUT)
+        response = self._send(prep_req)
 
         if response.status_code != requests.codes.ok:
             return self._handle_response(response)
 
-        fields = {}
-        params_data["success_action_status"] = str(
-            params_data["success_action_status"]
-        )
-        del params_data["form_action"]
-        fields.update(params_data)
+        params_data = dict(params_data)
+        params_data["success_action_status"] = str(params_data["success_action_status"])
+        params_data.pop("form_action", None)
 
-        with open(file_name, mode="rb") as fh:
-            fields["file"] = (file_name, fh, content_type)
-            multipart_data = MultipartEncoder(fields=fields)
+        def _upload_request():
+            with open(file_name, mode="rb") as fh:
+                fields = dict(params_data)
+                fields["file"] = (file_name, fh, content_type)
+                multipart_data = MultipartEncoder(fields=fields)
+                return requests.post(
+                    speech_upload_prod_url,
+                    data=multipart_data,
+                    headers={"Content-Type": multipart_data.content_type},
+                    timeout=self.DEFAULT_TIMEOUT,
+                )
 
-            response = requests.post(
-                speech_upload_prod_url,
-                data=multipart_data,
-                headers={"Content-Type": multipart_data.content_type},
-                timeout=self.DEFAULT_TIMEOUT,
-            )
+        response = self._execute_with_retry(_upload_request)
 
         if response.status_code != 201:
             return self._handle_response(response)
 
         xmltree = ET.ElementTree(ET.fromstring(response.text))
         xmlroot = xmltree.getroot()
-        location = xmlroot[0].text
         bucket = xmlroot[1].text
         key = xmlroot[2].text
 
@@ -194,9 +237,7 @@ class OtterAIClient:
             "country": "us",
             "userid": self._userid,
         }
-        response = self._session.get(
-            finish_speech_upload, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", finish_speech_upload, params=payload)
 
         return self._handle_response(response)
 
@@ -208,12 +249,12 @@ class OtterAIClient:
 
         data = {"formats": fileformat, "speech_otid_list": [speech_id]}
         headers = self._authed_headers()
-        response = self._session.post(
+        response = self._request(
+            "POST",
             download_speech_url,
             params=payload,
             headers=headers,
             data=data,
-            timeout=self.DEFAULT_TIMEOUT,
         )
 
         filename = (
@@ -238,12 +279,12 @@ class OtterAIClient:
 
         data = {"otid": speech_id}
         headers = self._authed_headers()
-        response = self._session.post(
+        response = self._request(
+            "POST",
             move_to_trash_bin_url,
             params=payload,
             headers=headers,
             data=data,
-            timeout=self.DEFAULT_TIMEOUT,
         )
 
         return self._handle_response(response)
@@ -256,12 +297,12 @@ class OtterAIClient:
 
         data = {"speaker_name": speaker_name}
         headers = self._authed_headers()
-        response = self._session.post(
+        response = self._request(
+            "POST",
             create_speaker_url,
             params=payload,
             headers=headers,
             data=data,
-            timeout=self.DEFAULT_TIMEOUT,
         )
 
         return self._handle_response(response)
@@ -287,11 +328,11 @@ class OtterAIClient:
         }
 
         headers = self._authed_headers()
-        response = self._session.get(
+        response = self._request(
+            "GET",
             set_speaker_url,
             params=payload,
             headers=headers,
-            timeout=self.DEFAULT_TIMEOUT,
         )
 
         return self._handle_response(response)
@@ -299,9 +340,7 @@ class OtterAIClient:
     def get_notification_settings(self):
         self._require_userid()
         notification_settings_url = self.API_BASE_URL + "get_notification_settings"
-        response = self._session.get(
-            notification_settings_url, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", notification_settings_url)
 
         return self._handle_response(response)
 
@@ -311,9 +350,7 @@ class OtterAIClient:
 
         payload = {"userid": self._userid}
 
-        response = self._session.get(
-            list_groups_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", list_groups_url, params=payload)
 
         return self._handle_response(response)
 
@@ -323,9 +360,7 @@ class OtterAIClient:
 
         payload = {"userid": self._userid}
 
-        response = self._session.get(
-            folders_url, params=payload, timeout=self.DEFAULT_TIMEOUT
-        )
+        response = self._request("GET", folders_url, params=payload)
 
         return self._handle_response(response)
 
@@ -336,12 +371,12 @@ class OtterAIClient:
         payload = {"userid": self._userid}
         data = {"folder_name": folder_name}
         headers = self._authed_headers()
-        response = self._session.post(
+        response = self._request(
+            "POST",
             create_folder_url,
             params=payload,
             headers=headers,
             data=data,
-            timeout=self.DEFAULT_TIMEOUT,
         )
 
         return self._handle_response(response)
@@ -353,12 +388,12 @@ class OtterAIClient:
         payload = {"userid": self._userid, "folder_id": folder_id}
         data = {"new_name": new_name}
         headers = self._authed_headers()
-        response = self._session.post(
+        response = self._request(
+            "POST",
             rename_folder_url,
             params=payload,
             headers=headers,
             data=data,
-            timeout=self.DEFAULT_TIMEOUT,
         )
 
         return self._handle_response(response)
@@ -376,12 +411,12 @@ class OtterAIClient:
         results = []
         for speech_id in speech_ids:
             data = {"speech_otid_list": speech_id}
-            response = self._session.post(
+            response = self._request(
+                "POST",
                 add_folder_speeches_url,
                 params=payload,
                 headers=headers,
                 data=data,
-                timeout=self.DEFAULT_TIMEOUT,
             )
             results.append(self._handle_response(response))
 
