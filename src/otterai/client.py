@@ -76,6 +76,8 @@ class OtterAIClient:
 
         return self._handle_response(response)
 
+    # Note: The API does not support pagination (offset/cursor). The only way
+    # to retrieve more speeches is to increase page_size.
     def get_speeches(self, folder=0, page_size=45, source="owned"):
         self._require_userid()
         speeches_url = self.API_BASE_URL + "speeches"
