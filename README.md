@@ -1,8 +1,137 @@
-# otterai-cli
+# otterai-cli — Otter.ai CLI & AI Agent Tool
 
-An unofficial command-line interface for [Otter.ai](https://otter.ai).
+[![PyPI](https://img.shields.io/pypi/v/otterai-cli)](https://pypi.org/project/otterai-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/otterai-cli)](https://pypi.org/project/otterai-cli/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A command-line interface for [Otter.ai](https://otter.ai) to list, search, download, and manage your meeting transcripts and recordings. Built for developers, scripts, and AI agents like Claude, ChatGPT, and Cursor.
 
 > **Note:** This project is not affiliated with or endorsed by Otter.ai / Aisense Inc.
+
+## Features
+
+- **List, search, and filter** meeting transcripts by date, folder, or keyword
+- **Download transcripts** as txt, pdf, md, docx, or srt
+- **Download meeting audio** as mp3
+- **Export markdown** with configurable YAML frontmatter
+- **Upload audio files** for transcription
+- **Manage speakers, folders, and groups** programmatically
+- **JSON output** for scripting, piping, and AI agent consumption
+- **Secure credential storage** via OS keychain (macOS Keychain, Windows Credential Locker, etc.)
+
+## AI Agent & LLM Usage
+
+This CLI is designed to be used by AI agents (Claude, GPT, Cursor, Windsurf, etc.) as a tool for accessing Otter.ai meeting data.
+
+### Quick Reference
+
+| Task | Command | Output |
+|------|---------|--------|
+| List recent meetings | `otter speeches list --days 7 --json` | JSON array of speech objects |
+| Get full transcript | `otter speeches get OTID --json` | Speech + transcript segments |
+| Download as markdown | `otter speeches download OTID -f md` | `.md` file saved to disk |
+| Download as text | `otter speeches download OTID -f txt` | `.txt` file saved to disk |
+| Download audio | `otter speeches download OTID -f mp3` | `.mp3` file saved to disk |
+| Search in meeting | `otter speeches search "query" OTID` | Matching transcript segments |
+| List folders | `otter folders list --json` | JSON array of folder objects |
+| List speakers | `otter speakers list --json` | JSON array of speaker objects |
+
+Agents can:
+
+```bash
+# List recent meetings (JSON for easy parsing)
+otter speeches list --days 7 --json
+
+# Search within a specific meeting transcript
+otter speeches search "action items" SPEECH_ID
+
+# Download a transcript as markdown
+otter speeches download SPEECH_ID --format md
+
+# Get full speech details and transcript
+otter speeches get SPEECH_ID --json
+
+# List all folders and speakers
+otter folders list --json
+otter speakers list --json
+```
+
+All commands support `--json` for structured, machine-readable output that agents can parse directly.
+
+### JSON Output Schema
+
+`otter speeches list --json` returns:
+
+```json
+{
+  "speeches": [
+    {
+      "otid": "jqb7OHo6mrHtCuMkyLN0nUS8mxY",
+      "speech_id": "22WB27HAEBEJYFCA",
+      "title": "Weekly Standup",
+      "created_at": "2025-02-20T10:00:00Z",
+      "summary": "Discussed sprint progress and blockers...",
+      "folder": "Work",
+      "folder_id": "12345"
+    }
+  ]
+}
+```
+
+`otter speeches get SPEECH_ID --json` returns the full speech object including transcript segments:
+
+```json
+{
+  "speech": {
+    "otid": "jqb7OHo6mrHtCuMkyLN0nUS8mxY",
+    "title": "Weekly Standup",
+    "summary": "Discussed sprint progress and blockers...",
+    "transcripts": [
+      {
+        "speaker": "Alice",
+        "text": "Let's go over the sprint updates.",
+        "start_offset": 0,
+        "end_offset": 4500
+      }
+    ]
+  }
+}
+```
+
+On error, the CLI exits with code `1` and prints a message to stderr:
+
+```
+Error: Authentication required. Run 'otter login' or set OTTERAI_USERNAME and OTTERAI_PASSWORD.
+```
+
+### Agent Workflow Example
+
+Find last week's standup, download its transcript as markdown:
+
+```bash
+# Step 1: List recent meetings as JSON, filter by title
+OTID=$(otter speeches list --days 7 --json | jq -r '.speeches[] | select(.title | test("standup"; "i")) | .otid' | head -1)
+
+# Step 2: Download the transcript
+otter speeches download "$OTID" --format md --output standup.md
+
+# Step 3: Or get full transcript data for further processing
+otter speeches get "$OTID" --json | jq '.transcripts[] | .speaker + ": " + .text'
+```
+
+### Agent Skill
+
+This project includes an [Agent Skill](https://agentskills.io) at [`skills/otterai-cli/`](skills/otterai-cli/SKILL.md) — a portable skill file that compatible agents (Claude Code, Cursor, Copilot, Gemini CLI, etc.) can use to learn this CLI's commands automatically. Copy the `skills/otterai-cli/` directory into your agent's skills folder to give it full Otter.ai access.
+
+### Authentication for Automated Environments
+
+For CI, scripts, or AI agents, use environment variables instead of interactive login:
+
+```bash
+export OTTERAI_USERNAME="you@example.com"
+export OTTERAI_PASSWORD="your-password"
+otter speeches list --json  # no login prompt needed
+```
 
 ## Requirements
 
@@ -44,6 +173,31 @@ You can also use environment variables (`OTTERAI_USERNAME`, `OTTERAI_PASSWORD`),
 otter user      # check current user
 otter logout    # remove saved credentials
 ```
+
+## Command Reference
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `otter login` | | Interactive login, saves credentials to keychain |
+| `otter logout` | | Remove saved credentials |
+| `otter user` | | Show current authenticated user |
+| `otter speeches list` | `--days N`, `--folder NAME`, `--page-size N`, `--source owned\|shared`, `--json` | List speeches |
+| `otter speeches get OTID` | `--json` | Get speech details + full transcript |
+| `otter speeches download OTID` | `--format txt\|pdf\|md\|docx\|srt\|mp3`, `--output NAME`, `--frontmatter-fields FIELDS` | Download transcript or audio |
+| `otter speeches search QUERY OTID` | `--json` | Search within a speech transcript |
+| `otter speeches upload FILE` | | Upload audio file for transcription |
+| `otter speeches trash OTID` | | Move speech to trash |
+| `otter speeches rename OTID TITLE` | | Rename a speech |
+| `otter speeches move OTID...` | `--folder NAME`, `--create` | Move speeches to a folder |
+| `otter speakers list` | `--json` | List all speakers |
+| `otter speakers create NAME` | | Create a new speaker |
+| `otter speakers tag OTID SPEAKER_ID` | `--all` | Tag speaker on transcript segments |
+| `otter folders list` | `--json` | List all folders |
+| `otter folders create NAME` | | Create a folder |
+| `otter folders rename ID NAME` | | Rename a folder |
+| `otter groups list` | `--json` | List all groups |
+| `otter config show` | | Show current config |
+| `otter config clear` | | Clear saved config |
 
 ## Usage
 
@@ -211,6 +365,59 @@ Most commands support `--json` flag for machine-readable output:
 otter speeches list --json
 otter speakers list --json
 ```
+
+## Error Handling
+
+The CLI returns exit code `0` on success and `1` on any error. Common errors:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Authentication required` | No credentials / expired session | Run `otter login` or set `OTTERAI_USERNAME` + `OTTERAI_PASSWORD` env vars |
+| `Speech not found` | Invalid `otid` | Use `otter speeches list --json` to get valid otids |
+| `Rate limit exceeded` | Too many API requests | Wait a few seconds and retry |
+
+## FAQ
+
+### How do I bulk export all my Otter.ai transcripts?
+
+```bash
+otter speeches list --json | jq -r '.speeches[].otid' | while read otid; do
+  otter speeches download "$otid" --format md
+done
+```
+
+### How do I download Otter.ai meeting notes as markdown?
+
+```bash
+otter speeches download SPEECH_ID --format md
+```
+
+This generates a markdown file with YAML frontmatter (title, summary, speakers, timestamps). See [Markdown frontmatter](#markdown-frontmatter---format-md) for customization.
+
+### Can AI agents like Claude or ChatGPT use this tool?
+
+Yes. Install the CLI, set `OTTERAI_USERNAME` and `OTTERAI_PASSWORD` environment variables, and agents can use all commands with `--json` for structured output. See [AI Agent & LLM Usage](#ai-agent--llm-usage).
+
+### Is there an Agent Skill for this CLI?
+
+Yes. The [`skills/otterai-cli/`](skills/otterai-cli/SKILL.md) directory contains an [Agent Skill](https://agentskills.io) compatible with Claude Code, Cursor, Copilot, Gemini CLI, and other supporting agents. Copy it into your agent's skills directory and the agent will automatically know how to use all `otter` commands.
+
+## Use Cases
+
+- **Bulk export / backup** — download all your Otter.ai transcripts programmatically
+- **Automate meeting workflows** — pipe transcript data into scripts or cron jobs
+- **AI agent integration** — let Claude, GPT, or other LLM agents access your meeting notes
+- **Search across meetings** — find specific discussions without opening the Otter.ai UI
+- **Meeting note pipelines** — download as markdown, process with other tools
+- **Transcript archival** — export meetings before they expire or for compliance
+
+## Alternatives
+
+| Tool | Type | Notes |
+|------|------|-------|
+| [Otter.ai web app](https://otter.ai) | Web UI | Official interface, no CLI or API access |
+| [otterai-api](https://github.com/gmchad/otterai-api) | Python library | API wrapper only, no CLI — this project builds on it |
+| Manual export | Web UI | One-at-a-time downloads from the Otter.ai dashboard |
 
 ## Development
 
