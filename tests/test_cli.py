@@ -569,6 +569,40 @@ def test_speeches_get_success(runner, saved_credentials, mock_login):
     assert "[Bob]: Hi Alice" in result.output
 
 
+def test_speeches_get_resolves_speaker_ids(runner, saved_credentials, mock_login):
+    """Test speech get resolves transcript speaker_id from speech speakers."""
+    mock_login.get(
+        API_BASE + "speech",
+        json={
+            "speech": {
+                "title": "My Meeting",
+                "otid": "abc123",
+                "created_at": 0,
+                "duration": 0,
+                "speakers": [
+                    {"id": 1, "speaker_name": "Alice"},
+                    {"id": 2, "speaker_name": "Bob"},
+                ],
+                "transcripts": [
+                    {"speaker_id": 1, "transcript": "Hello everyone"},
+                    {"speaker_id": 2, "transcript": "Hi Alice"},
+                    {
+                        "speaker_id": 3,
+                        "speaker_model_label": "3",
+                        "transcript": "Fallback label",
+                    },
+                ],
+            }
+        },
+        status=200,
+    )
+    result = runner.invoke(main, ["speeches", "get", "abc123"])
+    assert result.exit_code == 0
+    assert "[Alice]: Hello everyone" in result.output
+    assert "[Bob]: Hi Alice" in result.output
+    assert "[3]: Fallback label" in result.output
+
+
 def test_speeches_get_json(runner, saved_credentials, mock_login):
     """Test speech get with --json output."""
     mock_login.get(
@@ -1888,6 +1922,36 @@ def test_format_speech_markdown_unknown_speaker():
     }
     result = format_speech_markdown(data)
     assert "**Unknown:** Some text" in result
+
+
+def test_format_speech_markdown_resolves_speaker_ids():
+    """Test markdown resolves transcript speaker_id from speech speakers."""
+    from otterai.cli.helpers import format_speech_markdown
+
+    data = {
+        "speech": {
+            "title": "Test",
+            "created_at": 0,
+            "duration": 0,
+            "speakers": [
+                {"id": 1, "speaker_name": "Alice"},
+                {"id": 2, "speaker_name": "Bob"},
+            ],
+            "transcripts": [
+                {"speaker_id": 1, "transcript": "Hello everyone"},
+                {"speaker_id": 2, "transcript": "Hi Alice"},
+                {
+                    "speaker_id": 3,
+                    "speaker_model_label": "3",
+                    "transcript": "Fallback label",
+                },
+            ],
+        }
+    }
+    result = format_speech_markdown(data)
+    assert "**Alice:** Hello everyone" in result
+    assert "**Bob:** Hi Alice" in result
+    assert "**3:** Fallback label" in result
 
 
 def test_format_speech_markdown_empty_transcripts():
