@@ -196,6 +196,40 @@ def _extract_frontmatter_values(data: dict) -> dict:
     }
 
 
+def _speaker_names_by_id(speech: dict) -> dict[str, str]:
+    """Build a lookup for transcript speaker_id values."""
+    speaker_names = {}
+    for speaker in speech.get("speakers", []):
+        speaker_id = speaker.get("id", speaker.get("speaker_id"))
+        if speaker_id in (None, ""):
+            continue
+        name = speaker.get("speaker_name")
+        if isinstance(name, str) and name.strip():
+            speaker_names[str(speaker_id)] = name.strip()
+    return speaker_names
+
+
+def _resolve_transcript_speaker(
+    transcript: dict,
+    speaker_names: dict[str, str] | None = None,
+) -> str:
+    speaker = transcript.get("speaker_name")
+    if isinstance(speaker, str) and speaker.strip():
+        return speaker.strip()
+
+    speaker_id = transcript.get("speaker_id")
+    if speaker_id not in (None, "") and speaker_names:
+        speaker = speaker_names.get(str(speaker_id))
+        if speaker:
+            return speaker
+
+    speaker = transcript.get("speaker_model_label")
+    if isinstance(speaker, str) and speaker.strip():
+        return speaker.strip()
+
+    return "Unknown"
+
+
 def _resolve_folder_id(client: OtterAIClient, folder_ref: str) -> str:
     """Resolve a folder reference to an ID.
 
@@ -234,6 +268,7 @@ def format_speech_markdown(
     title = speech.get("title") or "Untitled"
     # Support both nested and top-level transcript locations
     transcripts = speech.get("transcripts") or data.get("transcripts", [])
+    speaker_names = _speaker_names_by_id(speech)
 
     selected_fields = _normalize_frontmatter_fields(frontmatter_fields)
     field_values = _extract_frontmatter_values(data)
@@ -248,13 +283,7 @@ def format_speech_markdown(
         lines.append("## Transcript")
         lines.append("")
         for t in transcripts:
-            speaker = (
-                t.get("speaker_name")
-                or t.get("speaker_model_label")
-                or "Unknown"
-            )
-            speaker = speaker.strip() if isinstance(speaker, str) else "Unknown"
-            speaker = speaker or "Unknown"
+            speaker = _resolve_transcript_speaker(t, speaker_names)
             text = (t.get("transcript") or "").strip()
             if not text:
                 continue
