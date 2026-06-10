@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "otterai-cli"
-version = "0.1.3"
+version = "0.1.4"
 description = "Unofficial Otter.ai CLI — list, search, download, and manage meeting transcripts. Built for developers, scripts, and AI agents."
 readme = "README.md"
 license = "MIT"
