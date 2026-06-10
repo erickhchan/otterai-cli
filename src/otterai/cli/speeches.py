@@ -13,6 +13,8 @@ from .helpers import (
     FRONTMATTER_AVAILABLE_FIELDS,
     parse_frontmatter_fields,
     format_speech_markdown,
+    _speaker_names_by_id,
+    _resolve_transcript_speaker,
 )
 
 
@@ -189,10 +191,11 @@ def speeches_get(speech_id: str, as_json: bool):
     # Print transcript if available (support both nested and top-level formats)
     transcripts = speech.get("transcripts") or data.get("transcripts", [])
     if transcripts:
+        speaker_names = _speaker_names_by_id(speech)
         click.echo("\nTranscript:")
         click.echo("-" * 40)
         for t in transcripts:
-            speaker = t.get("speaker_name", "Unknown")
+            speaker = _resolve_transcript_speaker(t, speaker_names)
             text = t.get("transcript", "")
             click.echo(f"[{speaker}]: {text}")
 
