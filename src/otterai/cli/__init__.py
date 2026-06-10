@@ -9,7 +9,7 @@ from .config_cmd import config
 
 
 @click.group()
-@click.version_option(version="0.1.1", prog_name="otter")
+@click.version_option(version="0.1.4", prog_name="otter")
 def main():
     """OtterAI CLI - Interact with Otter.ai from the command line."""
     pass
